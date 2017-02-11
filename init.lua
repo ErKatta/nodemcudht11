@@ -8,20 +8,32 @@ dataRetrivalInterval=600000 --10 minutes
 accessPointName="INSERT_HERE_AP_NAME"
 accessPointPassword="INSERT_HERE_AP_PASSWORD"
 
+nodeName = "sensor-esp-"..node.chipid()
+
 connectionNotificationLED_RED_pin=2
 connectionNotificationLED_GREEN_pin=1
 connectionNotificationLED_BLUE_pin=3
 
+resetButtonSignal_pin=5
+
 --Init functions
+gpio.mode(resetButtonSignal_pin, gpio.INPUT)
+gpio.trig(resetButtonSignal_pin,"up",
+ function()
+  print("Resetting the node as requested")
+  node.restart()
+ end
+)
+
 function initLed()
  gpio.mode(connectionNotificationLED_RED_pin, gpio.OUTPUT)
  gpio.mode(connectionNotificationLED_GREEN_pin, gpio.OUTPUT)
  gpio.mode(connectionNotificationLED_BLUE_pin, gpio.OUTPUT)
  
- gpio.write(connectionNotificationLED_RED_pin, gpio.LOW)
- gpio.write(connectionNotificationLED_GREEN_pin, gpio.LOW)
- gpio.write(connectionNotificationLED_BLUE_pin, gpio.LOW)
+ ledOff()
 end
+
+
 
 function ledOn(color)
  if color == "RED" then
@@ -107,7 +119,21 @@ wifi.sta.eventMonStart()
 
 function doStart()
 -- init mqtt client without logins, keepalive timer 120s
-m = mqtt.Client("clientid", 120)
+m = mqtt.Client(nodeName, 120)
+
+-- setup Last Will and Testament (optional)
+-- Broker will publish a message with qos = 0, retain = 0, data = "offline" 
+-- to topic "/lwt" if client don't send keepalive packet
+m:lwt("/lwt", "Sensor is offline ("..nodeName..")", 0, 0)
+
+m:on("offline",
+ function(client)
+  print ("Connection with the MQTT broker has been lost. Restart the sensor")
+  --This is a temporary workaround
+  node.restart()
+ end
+)
+
 m:connect(mqttBrokerHost, mqttBrokerPort, 0,
 function()
   print("Connected to MQTT broker")
@@ -131,7 +157,7 @@ function()
   end,
   function(client, reason)
     print("Connection failed! Reason: "..reason)
-    m:close()
+    ledOn("RED")
   end
   )
 
